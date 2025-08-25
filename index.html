@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>3D Clustering Demo — Fresh UI</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0f172a; --panel:#0b1220; --surface:#0b1228; --muted:#94a3b8; --accent:#7c3aed; --glass: rgba(255,255,255,0.04);
+      --glass-2: rgba(255,255,255,0.03);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;color:#e6eef8}
+    body{background:linear-gradient(180deg,#071026 0%, #081227 60%);display:flex;align-items:center;justify-content:center;padding:28px}
+    .container{width:min(1240px,96vw);display:grid;grid-template-columns:1fr 360px;gap:18px;align-items:start}
+
+    /* left: plot */
+    .plot-card{background:linear-gradient(180deg,var(--surface), rgba(11,18,40,0.7));border-radius:14px;padding:14px;box-shadow:0 10px 30px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
+    .title-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+    .badge{background:linear-gradient(90deg,var(--accent),#06b6d4);padding:6px 10px;border-radius:999px;font-weight:600;color:#071026;font-size:13px}
+    h1{margin:0;font-size:18px;font-weight:600;color:#e6eef8}
+    #plot{height:78vh;min-height:520px;border-radius:10px;background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent)}
+
+    /* right: controls */
+    .panel{background:linear-gradient(180deg,var(--panel),var(--surface));border-radius:12px;padding:16px;border:1px solid var(--glass-2);box-shadow:inset 0 1px 0 rgba(255,255,255,0.02), 0 8px 24px rgba(2,6,23,0.6)}
+    .control-row{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type=number]{width:110px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#e6eef8}
+    .btn{display:inline-flex;align-items:center;gap:8px;padding:9px 12px;border-radius:10px;border:0;cursor:pointer;font-weight:600}
+    .btn-primary{background:linear-gradient(90deg,var(--accent),#06b6d4);color:#071026}
+    .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:#cfe3ff}
+    .btn:active{transform:translateY(1px)}
+    .small{font-size:12px;color:var(--muted)}
+    .toggle{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+    .plane-item{display:flex;align-items:center;gap:10px;color:#dbeafe}
+
+    .footer{font-size:12px;color:var(--muted);margin-top:14px;text-align:left}
+
+    /* responsive */
+    @media (max-width:980px){
+      .container{grid-template-columns:1fr;}
+      #plot{min-height:420px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="plot-card">
+      <div class="title-row">
+        <div class="badge">3D</div>
+        <h1>Clustering Explorer</h1>
+      </div>
+      <div id="plot"></div>
+    </div>
+
+    <div class="panel" aria-label="controls">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <label for="k">Clusters (K)</label>
+          <input id="k" type="number" min="1" max="10" value="3">
+        </div>
+        <div>
+          <label for="pts">Points / cluster</label>
+          <input id="pts" type="number" min="10" max="1000" value="60">
+        </div>
+      </div>
+
+      <div class="control-row">
+        <button id="gen" class="btn btn-ghost">🔀 Generate</button>
+        <button id="run" class="btn btn-primary">⚙️ Run</button>
+      </div>
+
+      <div class="control-row" style="margin-top:6px">
+        <button id="step" class="btn btn-ghost">⏭️ Step</button>
+        <div style="display:flex;gap:8px">
+          <button id="anim" class="btn btn-ghost">▶️ Animate</button>
+          <button id="stop" class="btn btn-ghost">⏹️ Stop</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <label>Plane visibility</label>
+        <div class="toggle">
+          <label class="plane-item"><input type="checkbox" id="planeXY" checked> <span>XY plane (Z=0)</span></label>
+          <label class="plane-item"><input type="checkbox" id="planeXZ" checked> <span>XZ plane (Y=0)</span></label>
+          <label class="plane-item"><input type="checkbox" id="planeYZ" checked> <span>YZ plane (X=0)</span></label>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <label>Algorithm</label>
+        <div class="small">K-means (Lloyd). Colors show assignments; diamonds are centroids.</div>
+      </div>
+
+      <div class="footer">Rotate and zoom with the mouse. Save as a single HTML file and open it locally.</div>
+    </div>
+  </div>
+
+  <script>
+    // Random normal
+    function randn(mu=0, sigma=1) {
+      let u=0,v=0; while(u===0) u=Math.random(); while(v===0) v=Math.random();
+      return mu + sigma * Math.sqrt(-2*Math.log(u)) * Math.cos(2*Math.PI*v);
+    }
+    const COLORS = ['#e11d48','#2563eb','#16a34a','#f97316','#7c3aed','#06b6d4','#db2777','#84cc16','#f59e0b','#0ea5e9'];
+
+    // state
+    let points = []; // {x,y,z,cluster}
+    let centroids = [];
+    let history = [];
+    let animHandle = null;
+
+    function generateData(K, per=60, spread=2.4) {
+      points = [];
+      const centers = [];
+      const radius = Math.max(6, K*3);
+      for (let i=0;i<K;i++){
+        const ang = (i/K)*Math.PI*2;
+        centers.push([radius*Math.cos(ang) + randn(0,1), radius*Math.sin(ang)+randn(0,1), randn(0,1)*2]);
+      }
+      centers.forEach(c=>{
+        for (let j=0;j<per;j++){
+          points.push({x: c[0]+randn(0,spread), y: c[1]+randn(0,spread), z: c[2]+randn(0,spread), cluster: null});
+        }
+      });
+      points = points.sort(()=>Math.random()-0.5);
+      centroids = []; history = [];
+    }
+
+    function kmeansStep(K) {
+      if (centroids.length===0) {
+        // init: K distinct random points
+        const idxs = new Set();
+        while (idxs.size < K) idxs.add(Math.floor(Math.random()*points.length));
+        centroids = Array.from(idxs).map(i=>({x:points[i].x, y:points[i].y, z:points[i].z}));
+      }
+      // assign
+      const assignments = new Array(points.length);
+      for (let i=0;i<points.length;i++){
+        let best=-1, bd=Infinity;
+        for (let c=0;c<K;c++){
+          const dx=points[i].x-centroids[c].x, dy=points[i].y-centroids[c].y, dz=points[i].z-centroids[c].z;
+          const d=dx*dx+dy*dy+dz*dz;
+          if (d<bd) { bd=d; best=c; }
+        }
+        assignments[i]=best;
+      }
+      // recompute
+      const sums = Array.from({length:K},()=>({x:0,y:0,z:0,n:0}));
+      for (let i=0;i<points.length;i++){
+        const c=assignments[i]; sums[c].x+=points[i].x; sums[c].y+=points[i].y; sums[c].z+=points[i].z; sums[c].n+=1;
+      }
+      const newCentroids=[];
+      for (let c=0;c<K;c++){
+        if (sums[c].n===0) {
+          const r=points[Math.floor(Math.random()*points.length)];
+          newCentroids.push({x:r.x,y:r.y,z:r.z});
+        } else newCentroids.push({x:sums[c].x/sums[c].n, y:sums[c].y/sums[c].n, z:sums[c].z/sums[c].n});
+      }
+      history.push({assignments, centroids: newCentroids});
+      centroids = newCentroids;
+      for (let i=0;i<points.length;i++) points[i].cluster = assignments[i];
+      return assignments;
+    }
+
+    function runKmeans(K, maxIter=50) {
+      history=[]; centroids=[];
+      let prev=null;
+      for (let it=0; it<maxIter; it++){
+        const asg = kmeansStep(K);
+        if (prev && asg.every((v,i)=>v===prev[i])) break;
+        prev = asg.slice();
+      }
+    }
+
+    function buildPlane(size=60) {
+      const s=size;
+      function rect(xs, ys, zs, color, name) {
+        return { type:'mesh3d', x: xs, y: ys, z: zs, i:[0,0], j:[1,2], k:[2,3], opacity:0.12, color:color, name:name, hoverinfo:'none', showscale:false};
+      }
+      return [
+        rect([-s,-s,s,s], [-s,s,s,-s], [0,0,0,0], '#94a3b8', 'XY plane (Z=0)'),
+        rect([-s,-s,s,s], [0,0,0,0], [-s,s,s,-s], '#60a5fa', 'XZ plane (Y=0)'),
+        rect([0,0,0,0], [-s,s,s,-s], [-s,-s,s,s], '#34d399', 'YZ plane (X=0)')
+      ];
+    }
+
+    function repaint() {
+      const K = Math.max(1, parseInt(document.getElementById('k').value||3));
+      const grouped = Array.from({length:Math.max(K,1)},()=>({x:[],y:[],z:[]}));
+      for (let i=0;i<points.length;i++){
+        const c = (points[i].cluster===null || points[i].cluster===undefined) ? 0 : points[i].cluster % grouped.length;
+        grouped[c].x.push(points[i].x); grouped[c].y.push(points[i].y); grouped[c].z.push(points[i].z);
+      }
+      const traces = [];
+      for (let c=0;c<grouped.length;c++){
+        traces.push({ x:grouped[c].x, y:grouped[c].y, z:grouped[c].z, mode:'markers', type:'scatter3d',
+                      marker:{size:4, color:COLORS[c%COLORS.length], opacity:0.95}, name:'Cluster '+(c+1) });
+      }
+      if (centroids.length) {
+        traces.push({ x:centroids.map(a=>a.x), y:centroids.map(a=>a.y), z:centroids.map(a=>a.z),
+                      mode:'markers', type:'scatter3d', marker:{size:10,symbol:'diamond',color:'#0f172a'}, name:'Centroids' });
+      }
+      const planes = buildPlane(60);
+      if (document.getElementById('planeYZ').checked) traces.unshift(planes[2]);
+      if (document.getElementById('planeXZ').checked) traces.unshift(planes[1]);
+      if (document.getElementById('planeXY').checked) traces.unshift(planes[0]);
+
+      const layout = { margin:{l:0,r:0,b:0,t:26}, scene:{xaxis:{title:'X'},yaxis:{title:'Y'},zaxis:{title:'Z'}}, legend:{orientation:'h',y:1.02} };
+      Plotly.react('plot', traces, layout, {responsive:true});
+    }
+
+    // UI wiring
+    document.getElementById('gen').addEventListener('click', ()=>{
+      stopAnim();
+      const K = Math.max(1, parseInt(document.getElementById('k').value||3));
+      const pts = Math.max(10, parseInt(document.getElementById('pts').value||60));
+      generateData(K, pts);
+      repaint();
+    });
+
+    document.getElementById('run').addEventListener('click', ()=>{
+      stopAnim();
+      const K = Math.max(1, parseInt(document.getElementById('k').value||3));
+      runKmeans(K, 100);
+      repaint();
+    });
+
+    document.getElementById('step').addEventListener('click', ()=>{
+      stopAnim();
+      const K = Math.max(1, parseInt(document.getElementById('k').value||3));
+      kmeansStep(K);
+      repaint();
+    });
+
+    document.getElementById('anim').addEventListener('click', ()=>{
+      const K = Math.max(1, parseInt(document.getElementById('k').value||3));
+      history = []; centroids = [];
+      // collect steps
+      for (let i=0;i<30;i++){
+        kmeansStep(K);
+        if (history.length>1) {
+          const prev = history[history.length-2].assignments;
+          const curr = history[history.length-1].assignments;
+          if (curr.every((v,idx)=>v===prev[idx])) break;
+        }
+      }
+      let step=0;
+      stopAnim();
+      animHandle = setInterval(()=>{
+        if (step>=history.length) { stopAnim(); return; }
+        const st = history[step];
+        for (let i=0;i<points.length;i++) points[i].cluster = st.assignments[i];
+        centroids = st.centroids.map(c=>({x:c.x,y:c.y,z:c.z}));
+        repaint();
+        step++;
+      }, 450);
+    });
+
+    document.getElementById('stop').addEventListener('click', stopAnim);
+    function stopAnim(){ if (animHandle){ clearInterval(animHandle); animHandle=null; } }
+
+    ['planeXY','planeXZ','planeYZ'].forEach(id=>document.getElementById(id).addEventListener('change', repaint));
+
+    // initial
+    generateData(3,60);
+    repaint();
+
+    // helpful quick debug: show console instruction
+    console.log('If the page is blank, open DevTools (F12) -> Console for errors, and confirm this file is loaded as .html.');
+  </script>
+</body>
+</html>
